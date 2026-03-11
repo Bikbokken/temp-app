@@ -378,3 +378,15 @@ ISC
 ## Contributing
 
 Feel free to submit issues and enhancement requests!
+
+# Build the Docker image
+
+docker build -t arduino-temp-monitor .
+
+# Run the container (with database persistence)
+
+docker run -d -p 3000:3000 -v temp-data:/app arduino-temp-monitor
+
+# Or run without persistence
+
+docker run -d -p 3000:3000 arduino-temp-monitor
