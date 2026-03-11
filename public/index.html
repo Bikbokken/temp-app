@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arduino Temperature Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            color: #333;
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .stat-unit {
+            color: #999;
+            font-size: 0.7em;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        select {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            font-size: 1em;
+            cursor: pointer;
+        }
+
+        .status {
+            color: #666;
+            font-style: italic;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: white;
+            font-size: 1.2em;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌡️ Arduino Temperature Monitor</h1>
+        
+        <div class="stats-container">
+            <div class="stat-card">
+                <div class="stat-label">Current Temperature</div>
+                <div class="stat-value" id="currentTemp">--</div>
+                <div class="stat-unit">°C</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Average</div>
+                <div class="stat-value" id="avgTemp">--</div>
+                <div class="stat-unit">°C</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Minimum</div>
+                <div class="stat-value" id="minTemp">--</div>
+                <div class="stat-unit">°C</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Maximum</div>
+                <div class="stat-value" id="maxTemp">--</div>
+                <div class="stat-unit">°C</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Readings</div>
+                <div class="stat-value" id="totalReadings">--</div>
+                <div class="stat-unit">samples</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="temperatureChart"></canvas>
+        </div>
+
+        <div class="controls">
+            <div>
+                <label for="dataLimit">Show last: </label>
+                <select id="dataLimit">
+                    <option value="20">20 readings</option>
+                    <option value="50">50 readings</option>
+                    <option value="100" selected>100 readings</option>
+                    <option value="200">200 readings</option>
+                    <option value="500">500 readings</option>
+                </select>
+            </div>
+            <button id="refreshBtn">🔄 Refresh Data</button>
+            <div class="status" id="status">Last updated: Never</div>
+        </div>
+    </div>
+
+    <script>
+        let chart;
+        let autoRefreshInterval;
+
+        // Initialize chart
+        function initChart() {
+            const ctx = document.getElementById('temperatureChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Temperature (°C)',
+                        data: [],
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 2,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            title: {
+                                display: true,
+                                text: 'Temperature (°C)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            },
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
+        // Fetch and display temperature data
+        async function fetchData() {
+            try {
+                const limit = document.getElementById('dataLimit').value;
+                
+                // Fetch temperature readings
+                const response = await fetch(`/api/temperature?limit=${limit}`);
+                const data = await response.json();
+                
+                // Fetch statistics
+                const statsResponse = await fetch('/api/temperature/stats');
+                const stats = await statsResponse.json();
+                
+                // Update chart
+                const labels = data.map(reading => {
+                    const date = new Date(reading.timestamp);
+                    return date.toLocaleTimeString('en-US', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                });
+                const temperatures = data.map(reading => reading.temperature);
+                
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = temperatures;
+                chart.update();
+                
+                // Update statistics
+                document.getElementById('currentTemp').textContent = data.length > 0 
+                    ? data[data.length - 1].temperature.toFixed(1) 
+                    : '--';
+                document.getElementById('avgTemp').textContent = stats.average 
+                    ? stats.average.toFixed(1) 
+                    : '--';
+                document.getElementById('minTemp').textContent = stats.minimum 
+                    ? stats.minimum.toFixed(1) 
+                    : '--';
+                document.getElementById('maxTemp').textContent = stats.maximum 
+                    ? stats.maximum.toFixed(1) 
+                    : '--';
+                document.getElementById('totalReadings').textContent = stats.count || 0;
+                
+                // Update status
+                const now = new Date();
+                document.getElementById('status').textContent = 
+                    `Last updated: ${now.toLocaleTimeString('en-US')}`;
+                
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                document.getElementById('status').textContent = 
+                    'Error loading data. Please try again.';
+            }
+        }
+
+        // Event listeners
+        document.getElementById('refreshBtn').addEventListener('click', fetchData);
+        document.getElementById('dataLimit').addEventListener('change', fetchData);
+
+        // Initialize app
+        initChart();
+        fetchData();
+
+        // Auto-refresh every 5 seconds
+        autoRefreshInterval = setInterval(fetchData, 5000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            clearInterval(autoRefreshInterval);
+        });
+    </script>
+</body>
+</html>

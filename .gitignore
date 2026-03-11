@@ -1,0 +1,5 @@
+node_modules/
+temperature.db
+*.log
+.DS_Store
+.env
